@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from tome_sam.build_tome_sam import tome_sam_model_registry
+from tome_sam.build_tome_sam_hq import tome_sam_hq_model_registry
 from tome_sam.utils import misc
 from tome_sam.utils.dataloader import ReadDatasetInput, get_im_gt_name_dict, create_dataloaders, Resize
 from tome_sam.utils.json_serialization import convert_to_serializable_dict
@@ -51,7 +52,12 @@ class EvaluateArgs:
     seed: int
     input_size: List[int]
     batch_size: int
+    world_size: int
+    dist_url: str
+    local_rank: int
+    rank: int
     multiple_masks: bool
+    restore_model: str
     num_masks: int = None
     tome_setting: Optional[SAMToMeSetting] = None
 
@@ -150,6 +156,119 @@ def evaluate(args: EvaluateArgs = None):
 
     return test_stats
 
+
+def evaluate_hq(net, args: EvaluateArgs = None):
+    seed = args.seed + misc.get_rank()
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    if args.device == 'cuda' and torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif args.device == 'mps' and torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
+
+    ### Create eval dataloader ###
+    print(f"--- [HQ] Create valid dataloader with dataset {args.dataset} ---")
+    dataset_info = dataset_name_mapping[args.dataset]
+    valid_im_gt_path = get_im_gt_name_dict(dataset_info, flag='valid')
+    valid_dataloader, valid_dataset = create_dataloaders(valid_im_gt_path,
+                                                         my_transforms=[
+                                                             Resize(args.input_size),
+                                                         ],
+                                                         batch_size=args.batch_size,
+                                                         training=False)
+    print(f"--- Valid dataloader with dataset {args.dataset} created ---")
+
+    ### Create model with specified arguments ###
+    print(f"--- [HQ] Create SAM {args.model_type} with token merging in layers {args.tome_setting} ---")
+
+    tome_sam = tome_sam_model_registry[args.model_type](
+        checkpoint=args.checkpoint,
+        tome_setting=args.tome_setting,
+    )
+    tome_sam.to(device)
+    tome_sam.eval()
+    net.eval()
+
+    ### Start evaluation ###
+    print("--- [HQ] Start evaluation ---")
+    test_stats = {}
+    metric_logger = misc.MetricLogger(delimiter="  ")
+    print(f" [HQ] valid dataloader length: {len(valid_dataloader)}")
+
+    for data_val in metric_logger.log_every(valid_dataloader, 200):
+        imidx, inputs, labels, shapes, labels_ori = data_val["imidx"], data_val["image"], data_val["label"], data_val["shape"], data_val["ori_label"]
+
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        labels_ori = labels_ori.to(device)
+
+        # (B, C, H, W) -> (B, H, W, C)
+        imgs = inputs.permute(0, 2, 3, 1).cpu().numpy()
+
+        labels_box = misc.masks_to_boxes(labels[:, 0, :, :])
+        batched_input = []
+
+        for b_i in range(len(imgs)):
+            dict_input = dict()
+            input_image = torch.as_tensor(imgs[b_i].astype(np.uint8), device=device).permute(2, 0, 1).contiguous() # (C, H, W)
+            dict_input['image'] = input_image
+            dict_input['boxes'] = labels_box[b_i: b_i + 1]
+            dict_input['original_size'] = imgs[b_i].shape[:2]
+            batched_input.extend([dict_input])
+
+        with torch.no_grad():
+            # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
+            # masks - (image=1, masks per image, H, W)
+            t_start = time.time()
+            batched_output, interm_embeddings = tome_sam(batched_input, multimask_output=False)
+            img_per_sec = round(len(batched_input)/(time.time() - t_start), 2)
+
+
+        batch_len = len(batched_output)
+        encoder_embedding = torch.cat([batched_output[i_l]['encoder_embedding'] for i_l in range(batch_len)], dim=0)
+        image_pe = [batched_output[i_l]['image_pe'] for i_l in range(batch_len)]
+        sparse_embeddings = [batched_output[i_l]['sparse_embeddings'] for i_l in range(batch_len)]
+        dense_embeddings = [batched_output[i_l]['dense_embeddings'] for i_l in range(batch_len)]
+
+        masks_sam, masks_hq = net(
+            image_embeddings=encoder_embedding,
+            image_pe=image_pe,
+            sparse_prompt_embeddings=sparse_embeddings,
+            dense_prompt_embeddings=dense_embeddings,
+            multimask_output=False,
+            hq_token_only=False,
+            interm_embeddings=interm_embeddings,
+        )
+
+
+#        pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
+#                                            output in batched_output])).float().to(device)
+
+        mask_iou, boundary_iou = compute_iou_and_boundary_iou(masks_hq, labels_ori)
+        loss_dict = {"mask_iou": mask_iou, "boundary_iou": boundary_iou, "im/s": img_per_sec}
+        loss_dict_reduced = misc.reduce_dict(loss_dict)
+        metric_logger.update(**loss_dict_reduced)
+
+    print('============================')
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger)
+    resstat = {k: meter.global_avg for k, meter in metric_logger.meters.items() if meter.count > 0}
+    test_stats.update(resstat)
+
+    if args.output:
+        os.makedirs(args.output, exist_ok=True)
+        filename = os.path.join(args.output, 'ious.json')
+        with open(filename, 'w') as f:
+            json.dump({
+                'result': test_stats,
+                'evaluate_args': convert_to_serializable_dict(args)
+            }, f, indent=4, default=str)
+
+    return test_stats
 
 def get_args_parser():
     parser = argparse.ArgumentParser(description="Evaluate accuracy of the segmentation result")

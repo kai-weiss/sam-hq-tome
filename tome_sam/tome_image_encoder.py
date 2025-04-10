@@ -17,6 +17,8 @@ from .tome_algo.tome.merge import bipartite_soft_matching
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
 from .tome_algo.pitome.merge import pitome_vision
+from .tome_algo.pitome.merge_v1 import pitome_vision_v1
+from .tome_algo.pitome.merge_v2 import pitome_vision_v2
 from .utils.tome_presets import SAMToMeSetting, ToMeConfig
 
 
@@ -137,13 +139,15 @@ class ToMeImageEncoderViT(ImageEncoderViT):
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
-
+        interm_embeddings = []
         for blk in self.blocks:
             x = blk(x)
+            if blk.window_size == 0:
+                interm_embeddings.append(x)
 
         x = self.neck(x.permute(0, 3, 1, 2))
 
-        return x
+        return x, interm_embeddings
 
 
 class Block(nn.Module):
@@ -282,6 +286,20 @@ class EfficientAttention(Attention):
 
         if self.tome_setting.mode == 'pitome':
             x_merge, x_unmerge = pitome_vision(
+                metric=metric, ratio=self.tome_setting.params.r,
+                margin=torch.tensor(self.tome_setting.params.margin),
+                alpha=self.tome_setting.params.alpha,
+            )
+
+        if self.tome_setting.mode == 'pitome_v1':
+            x_merge, x_unmerge = pitome_vision_v1(
+                metric=metric, ratio=self.tome_setting.params.r,
+                margin=torch.tensor(self.tome_setting.params.margin),
+                alpha=self.tome_setting.params.alpha,
+            )
+
+        if self.tome_setting.mode == 'pitome_v2':
+            x_merge, x_unmerge = pitome_vision_v2(
                 metric=metric, ratio=self.tome_setting.params.r,
                 margin=torch.tensor(self.tome_setting.params.margin),
                 alpha=self.tome_setting.params.alpha,

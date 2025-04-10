@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Union, Literal, List
+from typing import Any, Dict, Union, Literal, List
 
 
 # Aggregation of SAM image encoder parameters which can be easily accessed by other code snippets
@@ -50,6 +50,7 @@ SAM_CONFIGS = {
     ),
 }
 
+
 def get_sam_config(model_type: str) -> SAMImageEncoderConfig:
     return SAM_CONFIGS[model_type]
 
@@ -71,14 +72,16 @@ class PiToMe: # settings required to do pitome
     margin: float # Threshold for energy score
     alpha: float # for ELU activation
 
+
 @dataclass
 class ToMeConfig:
-    mode: Literal['tome', 'pitome', 'tomesd', 'tome25', 'grad_tome']
-    params: Union[ToMe, PiToMe, ToMeSD]
+    mode: Literal['tome', 'pitome', 'pitome_v1', 'pitome_v2', 'tomesd', 'tome25', 'grad_tome']
+    params: Any
 
 
 # key - index of the ViT layer, value - the specific tomesd settings taken place in this block
 SAMToMeSetting = Dict[int, ToMeConfig]
+
 
 def generate_tome_sam_settings(model_type: str, start_idx: int, end_idx: int):
     num_layers = get_sam_config(model_type).depth
@@ -111,10 +114,28 @@ def generate_tome_sam_settings(model_type: str, start_idx: int, end_idx: int):
                 params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
             ) for i in range(start_idx, end_idx + 1)
         },
-        'pitome':{
+        'grad_tome': {
             i: ToMeConfig(
-            mode='pitome',
-            params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+                mode='grad_tome',
+                params=ToMe(r=0.5)
+            ) for i in range(start_idx, end_idx + 1)
+        },
+        'pitome': {
+            i: ToMeConfig(
+                mode='pitome',
+                params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+            ) for i in range(start_idx, end_idx + 1)
+        },
+        'pitome_v1': {
+            i: ToMeConfig(
+                mode='pitome_v1',
+                params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
+            ) for i in range(start_idx, end_idx + 1)
+        },
+        'pitome_v2': {
+            i: ToMeConfig(
+                mode='pitome_v2',
+                params=PiToMe(r=0.5, margin=0.0, alpha=1.0)
             ) for i in range(start_idx, end_idx + 1)
         }
     }
@@ -125,4 +146,3 @@ LAST_5_LAYERS_TOME = generate_tome_sam_settings('vit-b', 7, 11)
 
 # All Layers
 ALL_LAYERS_TOME = generate_tome_sam_settings('vit-b', 0, 11)
-
