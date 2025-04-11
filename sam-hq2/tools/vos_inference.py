@@ -6,6 +6,8 @@
 
 import argparse
 import os
+import time
+import datetime
 from collections import defaultdict
 
 import numpy as np
@@ -365,6 +367,7 @@ def vos_separate_inference_per_object(
 
 
 def main():
+    start_time = time.time()  # Record start time
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--sam2_cfg",
@@ -501,6 +504,14 @@ def main():
         f"completed VOS prediction on {len(video_names)} videos -- "
         f"output masks saved to {args.output_mask_dir}"
     )
+
+    # Compute total elapsed time and average time per iteration (per video)
+    total_time = time.time() - start_time
+    total_iterations = len(video_names)
+    avg_time_per_iteration = total_time / total_iterations if total_iterations > 0 else 0
+
+    formatted_total_time = str(datetime.timedelta(seconds=int(total_time)))
+    print(f"Total time: {formatted_total_time} ({avg_time_per_iteration:.4f} s / it)")
 
 
 if __name__ == "__main__":
