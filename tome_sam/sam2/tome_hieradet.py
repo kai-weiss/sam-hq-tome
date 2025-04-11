@@ -60,7 +60,7 @@ class EfficientMultiScaleAttention(MultiScaleAttention):
 
     def forward(self, x: torch.Tensor, merge_operations=None) -> torch.Tensor:
         B, H, W, _ = x.shape
-        C = _ // self.num_heads
+        C = self.dim_out // self.num_heads  # Matches the qkv output dimension
 
         x = x.reshape(B, H * W, -1)  # (B, N, C * nHeads)
         # token merging on x
@@ -128,20 +128,36 @@ class EfficientMultiScaleAttention(MultiScaleAttention):
         # q,k,v in shape of (B*nHeads, N_reduced, C)
         q, k, v = qkv.unbind(0)
 
+        # q, k, v originally [B*nHeads, N_reduced, C]
+        q = q.view(B, self.num_heads, N_reduced, C)
+        k = k.view(B, self.num_heads, N_reduced, C)
+        v = v.view(B, self.num_heads, N_reduced, C)
+
         # Q pooling (for downsample at stage changes)
         if self.q_pool:
-            q = do_pool(q.reshape(B, H, W, -1), self.q_pool)
+            q = q.reshape(B, H, W, -1)
+            k = k.reshape(B, H, W, -1)
+            v = v.reshape(B, H, W, -1)
+
+            q = do_pool(q, self.q_pool)
+            k = do_pool(k, self.q_pool)
+            v = do_pool(v, self.q_pool)
+
             H, W = q.shape[1:3]  # downsampled shape
             q = q.reshape(B, H * W, self.num_heads, -1)
+            k = k.reshape(B, H * W, self.num_heads, -1)
+            v = v.reshape(B, H * W, self.num_heads, -1)
 
         # Torch's SDPA expects [B, nheads, H*W, C] so we transpose
-        x = F.scaled_dot_product_attention(
-            q.transpose(1, 2),
-            k.transpose(1, 2),
-            v.transpose(1, 2),
-        )
+        x = F.scaled_dot_product_attention(q, k, v)
         # Transpose back
         x = x.transpose(1, 2)
+
+        # reshape x from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads) for unmerging
+        x = x.reshape(B, self.num_heads, N_reduced, -1)
+        x = x.permute(0, 2, 1, 3)
+        x = x.reshape(B, N_reduced, -1)
+
         # token unmerge
         x = x_unmerge(x)  # (B, N, C*nHeads)
         x = x.reshape(B, H, W, -1)
