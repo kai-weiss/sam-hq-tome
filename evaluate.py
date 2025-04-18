@@ -60,6 +60,32 @@ class EvaluateArgs:
     restore_model: str
     num_masks: int = None
     tome_setting: Optional[SAMToMeSetting] = None
+    
+@dataclass
+class EvaluateArgs2:
+    def __init__(self):
+        self.use_vos_optimized_video_predictor = None
+        self.apply_postprocessing = None
+        self.sam2_checkpoint = None
+        self.sam2_cfg = None
+        self.per_obj_png_file = None
+
+    dataset: str
+    output: str
+    model_type: str
+    checkpoint: str
+    device: str
+    seed: int
+    input_size: List[int]
+    batch_size: int
+    world_size: int
+    dist_url: str
+    local_rank: int
+    rank: int
+    multiple_masks: bool
+    restore_model: str
+    num_masks: int = None
+    tome_setting: Optional[SAMToMeSetting] = None
 
 
 def evaluate(args: EvaluateArgs = None):
@@ -448,11 +474,20 @@ dataset_dis_val = ReadDatasetInput(
     gt_ext=".png"
 )
 
+dataset_davis_val = ReadDatasetInput(
+    name="DAVIS",
+    im_dir="./data/DAVIS/JPEGImages/Full-Resolution",
+    gt_dir="./data/DAVIS/Annotations/Full-Resolution",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
 dataset_name_mapping = {
     "dis": dataset_dis_val,
     "thin": dataset_thin_val,
     "hrsod": dataset_hrsod_val,
-    "coift": dataset_coift_val
+    "coift": dataset_coift_val,
+    "davis": dataset_davis_val
 }
 
 if __name__ == "__main__":

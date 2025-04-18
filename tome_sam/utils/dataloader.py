@@ -20,6 +20,7 @@ from torchvision import transforms
 from torchvision.transforms.functional import normalize
 import torch.nn.functional as F
 
+
 ### main modification: one dataset instead of a list of dataset, with type hint, remove unnecessary
 ### dictionary storages, remove distributed settings
 
@@ -30,9 +31,10 @@ import torch.nn.functional as F
 class ReadDatasetInput:
     name: str
     im_dir: str
-    gt_dir: Optional[str] # Ground truth directory may be empty
+    gt_dir: Optional[str]  # Ground truth directory may be empty
     im_ext: str
     gt_ext: str
+
 
 @dataclass
 class ReadDatasetOutput:
@@ -65,11 +67,54 @@ def get_im_gt_name_dict(dataset: ReadDatasetInput, flag='valid') -> ReadDatasetO
                              im_ext=dataset.im_ext,
                              gt_ext=dataset.gt_ext)
 
+
+def gather_davis_paths(dataset: ReadDatasetInput, flag='valid') -> ReadDatasetOutput:
+    """
+    Recursively collect all frames and their corresponding annotation paths
+    for DAVIS. Returns a list of dicts, each with keys 'image' and 'label'.
+    """
+    print("------------------------------", flag, "--------------------------------")
+
+    print("--->>>", "dataset: ", dataset.name, "<<<---")
+    video_names = [d for d in sorted(os.listdir(dataset.im_dir))
+                   if os.path.isdir(os.path.join(dataset.im_dir, d))]
+
+    im_gt_list = []
+    for vid_name in video_names:
+        video_img_dir = os.path.join(dataset.im_dir, vid_name)  # e.g. .../bear
+        video_anno_dir = os.path.join(dataset.gt_dir, vid_name)  # e.g. .../Annotations/Full-Resolution/bear
+
+        # Gather all .jpg frames in that video
+        frame_paths = sorted(glob.glob(os.path.join(video_img_dir, f"*{dataset.im_ext}")))
+        for frame_path in frame_paths:
+            frame_name = os.path.splitext(os.path.basename(frame_path))[0]  # "00000"
+
+            # Build the expected annotation path: "bear/00000.png"
+            annotation_path = os.path.join(video_anno_dir, f"{frame_name}{dataset.gt_ext}")
+
+            if not os.path.exists(annotation_path):
+                # If there's no annotation for this frame, skip or handle accordingly
+                continue
+
+            # Keep track of this image–annotation pair in your chosen structure:
+            im_gt_list.append({
+                "image": frame_path,
+                "label": annotation_path,
+                "video_name": vid_name,
+                "frame_id": frame_name
+            })
+
+    return ReadDatasetOutput(name=dataset.name,
+                             im_path=[entry["image"] for entry in im_gt_list],
+                             gt_path=[entry["label"] for entry in im_gt_list],
+                             im_ext=dataset.im_ext,
+                             gt_ext=dataset.gt_ext)
+
+
 def create_dataloaders(name_im_gt_path: ReadDatasetOutput,
-                       my_transforms: List= None,
+                       my_transforms: List = None,
                        batch_size=1,
                        training=False) -> tuple[DataLoader, Dataset]:
-
     num_workers_ = 1
     if batch_size > 1:
         num_workers_ = 2
@@ -223,12 +268,11 @@ class OnlineDataset(Dataset):
         gt_ext_list = []
 
         im_name_list.extend(
-                [x.split(os.sep)[-1].split(name_im_gt_path.im_ext)[0] for x in name_im_gt_path.im_path])
+            [x.split(os.sep)[-1].split(name_im_gt_path.im_ext)[0] for x in name_im_gt_path.im_path])
         im_path_list.extend(name_im_gt_path.im_path)
         gt_path_list.extend(name_im_gt_path.gt_path)
         im_ext_list.extend([name_im_gt_path.im_ext for x in name_im_gt_path.im_path])
         gt_ext_list.extend([name_im_gt_path.gt_ext for x in name_im_gt_path.gt_path])
-
 
         self.dataset["im_name"] = im_name_list
         self.dataset["im_path"] = im_path_list
