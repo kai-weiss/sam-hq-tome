@@ -60,32 +60,21 @@ class EvaluateArgs:
     restore_model: str
     num_masks: int = None
     tome_setting: Optional[SAMToMeSetting] = None
-    
+
+
 @dataclass
 class EvaluateArgs2:
-    def __init__(self):
-        self.use_vos_optimized_video_predictor = None
-        self.apply_postprocessing = None
-        self.sam2_checkpoint = None
-        self.sam2_cfg = None
-        self.per_obj_png_file = None
-
     dataset: str
     output: str
-    model_type: str
-    checkpoint: str
+    sam2_cfg: str
+    sam2_checkpoint: str
     device: str
-    seed: int
     input_size: List[int]
     batch_size: int
-    world_size: int
-    dist_url: str
-    local_rank: int
-    rank: int
     multiple_masks: bool
-    restore_model: str
-    num_masks: int = None
-    tome_setting: Optional[SAMToMeSetting] = None
+    per_obj_png_file: bool
+    apply_postprocessing: bool
+    use_vos_optimized_video_predictor: bool
 
 
 def evaluate(args: EvaluateArgs = None):
@@ -155,7 +144,7 @@ def evaluate(args: EvaluateArgs = None):
             # batched output - list([dict(['masks', 'iou_predictions', 'low_res_logits'])])
             # masks - (image=1, masks per image, H, W)
             t_start = time.time()
-            batched_output = tome_sam(batched_input, multimask_output=False)
+            batched_output, _ = tome_sam(batched_input, multimask_output=False)
             img_per_sec = round(len(batched_input)/(time.time() - t_start), 2)
 
         pred_masks = torch.tensor(np.array([output['masks'][0].cpu() for
@@ -482,12 +471,30 @@ dataset_davis_val = ReadDatasetInput(
     gt_ext=".png"
 )
 
+dataset_mose_val = ReadDatasetInput(
+    name="MOSE",
+    im_dir="./data/MOSE/JPEGImages/Full-Resolution",
+    gt_dir="./data/MOSE/Annotations/Full-Resolution",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
+dataset_sav_val = ReadDatasetInput(
+    name="SA-V",
+    im_dir="./data/SA-V/JPEGImages_24fps",
+    gt_dir="./data/SA-V/Annotations_6fps",
+    im_ext=".jpg",
+    gt_ext=".png"
+)
+
 dataset_name_mapping = {
     "dis": dataset_dis_val,
     "thin": dataset_thin_val,
     "hrsod": dataset_hrsod_val,
     "coift": dataset_coift_val,
-    "davis": dataset_davis_val
+    "davis": dataset_davis_val,
+    "mose": dataset_mose_val,
+    "sa-v": dataset_sav_val
 }
 
 if __name__ == "__main__":

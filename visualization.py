@@ -124,28 +124,6 @@ def visualize_output_mask(args: VisualizeArgs):
 
 
 if __name__ == '__main__':
-    tomesd_setting: SAMToMeSetting = {
-        7: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-        8: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-        9: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-        10: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-        11: ToMeConfig(
-            mode='tomesd',
-            params=ToMeSD(r=0.5, sx=2, sy=2, no_rand=False)
-        ),
-    }
 
     tome_setting: SAMToMeSetting = {
         7: ToMeConfig(
@@ -166,29 +144,6 @@ if __name__ == '__main__':
         ),
         11: ToMeConfig(
             mode='tome',
-            params=ToMe(r=0.5)
-        ),
-    }
-
-    tome25_setting: SAMToMeSetting = {
-        7: ToMeConfig(
-            mode='tome25',
-            params=ToMe(r=0.5)
-        ),
-        8: ToMeConfig(
-            mode='tome25',
-            params=ToMe(r=0.5)
-        ),
-        9: ToMeConfig(
-            mode='tome25',
-            params=ToMe(r=0.5)
-        ),
-        10: ToMeConfig(
-            mode='tome25',
-            params=ToMe(r=0.5)
-        ),
-        11: ToMeConfig(
-            mode='tome25',
             params=ToMe(r=0.5)
         ),
     }

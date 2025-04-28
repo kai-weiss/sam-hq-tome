@@ -85,7 +85,7 @@ def gather_davis_paths(dataset: ReadDatasetInput, flag='valid') -> ReadDatasetOu
         video_anno_dir = os.path.join(dataset.gt_dir, vid_name)  # e.g. .../Annotations/Full-Resolution/bear
 
         # Gather all .jpg frames in that video
-        frame_paths = sorted(glob.glob(os.path.join(video_img_dir, f"*{dataset.im_ext}")))
+        frame_paths = sorted(glob(os.path.join(video_img_dir, f"*{dataset.im_ext}")))
         for frame_path in frame_paths:
             frame_name = os.path.splitext(os.path.basename(frame_path))[0]  # "00000"
 
