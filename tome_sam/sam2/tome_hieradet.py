@@ -133,7 +133,7 @@ class EfficientMultiScaleAttention(MultiScaleAttention):
         k = k.view(B, self.num_heads, N_reduced, C)
         v = v.view(B, self.num_heads, N_reduced, C)
 
-        # Q pooling (for downsample at stage changes)
+        # Q,K,V pooling (for downsample at stage changes)
         if self.q_pool:
             q = q.reshape(B, H, W, -1)
             k = k.reshape(B, H, W, -1)

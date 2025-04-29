@@ -17,61 +17,61 @@ model:
       tome_setting:
         31:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         32:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         34:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         35:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         37:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         38:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         44:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         45:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         46:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5
         47:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "grad_tome"
           params:
             _target_: tome_sam.utils.tome_presets.ToMe
             r: 0.5

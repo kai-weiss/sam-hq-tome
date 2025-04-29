@@ -17,64 +17,84 @@ model:
       tome_setting:
         31:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         32:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         34:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         35:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         37:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         38:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         44:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         45:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         46:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
         47:
           _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
+          mode: "pitome_v1"
           params:
-            _target_: tome_sam.utils.tome_presets.ToMe
+            _target_: tome_sam.utils.tome_presets.PiToMe
             r: 0.5
+            margin: 0.5
+            alpha: 1.0
     neck:
       _target_: sam2.modeling.backbones.image_encoder.FpnNeck
       position_encoding:
