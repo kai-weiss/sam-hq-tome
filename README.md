@@ -1,34 +1,39 @@
 ## Optimizing SAM and SAM-2 Foundation Models: A Token Merging Approach
 
 ### Installation
-Refer to installation steps of the [Segment Anything repository](https://github.com/facebookresearch/segment-anything?tab=readme-ov-file#installation).
 
-The code requires `python>=3.8`, as well as `pytorch>=1.7` and `torchvision>=0.8`. Please follow the instructions here to install both PyTorch and TorchVision dependencies. Installing both PyTorch and TorchVision with CUDA support is strongly recommended.
+Generally, the code in this repository requires python>=3.10, as well as torch>=2.5.1 and torchvision>=0.20.1. 
+Please follow the instructions [here](https://pytorch.org/get-started/locally/) to install both PyTorch and TorchVision dependencies.
 
-Install `tome_sam` repository and install with:
+It is also strongly recommended to create a conda environment:
 ```
-git clone https://github.com/xxjsw/tome_sam.git
-cd tome_sam
+conda create --name sam-hq-tome python=3.10 -y
+conda activate sam-hq-tome
+```
+
+Then, install this repository using:
+```
+git clone https://github.com/xxjsw/tome_sam.git && cd sam-hq-tome
 pip install -e.
 ```
 
-The following optional dependencies are necessary for mask post-processing, saving masks in COCO format, the example notebooks, and exporting the model in ONNX format. jupyter is also required to run the example notebooks.
-```
-pip install opencv-python pycocotools matplotlib onnxruntime onnx
-```
 
-### Download Checkpoints
-Create a directory `checkpoints` directly inside the root directory and download the pre-trained SAM checkpoints into it:
-```
-# ViT-B 
-wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
+#### Installing HQ-SAM
 
-# ViT-L 
-wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth
+Before installing HQ-SAM, make sure you’re in the `segment_anything` folder of this repository:
 
-# ViT-H 
-wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
-```
+```bash
+cd segment_anything
+
+Then follow the instructions [here](https://github.com/kai-weiss/sam-hq-tome/tree/main/segment_anything).
+
+#### Installing SAM 2
+Before installing SAM 2, make sure you’re in the `sam-hq2` folder of this repository:
+
+```bash
+cd sam-hq2
+
+Then follow the instructions [here](https://github.com/kai-weiss/sam-hq-tome/tree/main/sam-hq2).
 
 ## Data Preparation
 
@@ -42,7 +47,7 @@ Download the datasets DIS5k.zip and thin_object_detection.zip from this [Hugging
 
 Refer to dataset preparation from [SAM 2: Segment Anything in Images and Videos](https://github.com/facebookresearch/sam2/tree/main/sav_dataset).
 
-Download the following three datasets: [DAVIS](https://davischallenge.org/index.html), [MOSE](https://henghuiding.github.io/MOSE/), [SA-V](https://ai.meta.com/datasets/segment-anything-video-downloads/) 
+Download the following three datasets: [DAVIS (2017) (Full resolution)](https://davischallenge.org/index.html), [MOSE](https://henghuiding.github.io/MOSE/), [SA-V](https://ai.meta.com/datasets/segment-anything-video-downloads/) 
 
 ###  Overview
 At the end, the data folder should have the following structure:
@@ -64,7 +69,7 @@ sam-hq-tome
 
 The script `example.py` evaluates SAM  with various ToMe (Token Merging) variants, optionally using the HQ Mask Decoder for HQ-SAM. 
 It runs multiple test cases (different ToMe configurations iterating in a loop) and reports evaluation metrics and FLOPs.
-The default settings are the same as chosen in the paper:
+The default settings are the same as those chosen in the paper:
 ```
 # Activate HQ mask decoder (SAM-HQ)
 samHQ = True
@@ -87,7 +92,7 @@ pitome_setting_v1: SAMToMeSetting = { ... }
 pitome_setting_v2: SAMToMeSetting = { ... }
 ```
 
-Optionally it is also possible to define your own setting and "mix-and-match" different token merging strategies, for example:
+Optionally, it is also possible to define your setting and "mix-and-match" different token merging strategies, for example:
 ```
 new_setting: SAMToMeSetting = {
     2: ToMeConfig(
@@ -133,26 +138,81 @@ Make sure to include your setting in the variable `test_cases`.
 ## Evaluation on SAM 2
 
 ### Accuracy Evaluation (J&F)
+Please also refer to [SAM 2 toolkits](https://github.com/facebookresearch/sam2/tree/main/tools) and [SAM 2 Eval](https://github.com/facebookresearch/sam2/tree/main/sav_dataset#sa-v-val-and-test-evaluation) for more information.
+
+For SAM 2, different YAML Files are defined to replicate the test cases used for the paper. 
+They can be found under `sam-hq-tome/sam-hq2/sam2/configs/sam2.1/` are named as follows:
+- sam2.1_hiera_l.yaml
+- tome_sam2.1_hiera_l.yaml
+- grad_tome_sam2.1_hiera_l.yaml
+- pitome_sam2.1_hiera_l.yaml
+- pitome_v1_sam2.1_hiera_l.yaml
+- pitome_v2_sam2.1_hiera_l.yaml
+
+
+
 To run the accuracy evaluation, navigate to:
 ```
 cd sam-hq-tome/sam-hq2
 ```
 
-Please also refer to [SAM 2 toolkits](https://github.com/facebookresearch/sam2/tree/main/tools) for more information.
+#### DAVIS
+Then run this script to evaluate on the DAVIS dataset:
+```
+python ./tools/vos_inference.py \
+  --sam2_cfg configs/sam2.1/[YAML-file] \
+  --sam2_checkpoint ./checkpoints/sam2.1_hiera_large.pt \
+  --base_video_dir ../data/DAVIS/JPEGImages/Full-Resolution \
+  --input_mask_dir ../data/DAVIS/Annotations/Full-Resolution \
+  --video_list_file ../data/DAVIS/ImageSets/2017/val.txt \
+  --output_mask_dir ./outputs/davis_2017_pred_pngs
+```
+Replace [YAML-file] with one of the above-mentioned YAML files.
+
+Afterwards, run:
+```
+python sav_dataset/sav_evaluator.py --gt_root ../data/DAVIS/Annotations/Full-Resolution --pred_root  outputs/davis_2017_pred_pngs
+```
+to obtain the J&F metric.
+
+#### SA-V
+Run this script to evaluate on the SA-V dataset: 
+```
+python ./tools/vos_inference.py \
+  --sam2_cfg configs/sam2.1/[YAML-file] \
+  --sam2_checkpoint ./checkpoints/sam2.1_hiera_large.pt \
+  --base_video_dir ../data/SA-V/JPEGImages_24fps \
+  --input_mask_dir ../data/SA-V/Annotations_6fps \
+  --video_list_file ../data/SA-V/sav_val.txt \
+  --per_obj_png_file \
+  --output_mask_dir ./outputs/sav_val_pred_pngs
+```
+Replace [YAML-file] with one of the above-mentioned YAML files.
+
+Afterwards, run:
+```
+python sav_dataset/sav_evaluator.py --gt_root ../data/DAVIS/Annotations/Full-Resolution --pred_root  outputs/sav_val_pred_pngs
+```
+to obtain the J&F metric.
+
+#### MOSE
+For MOSE, an offline evaluation is not possible.
+Instead, you have to do an online evaluation under: [Codalab](https://codalab.lisn.upsaclay.fr/competitions/10703)
+
 
 
 ### FLOPS Evaluation
 To run the FLOPS evaluation on every token merging variant, execute `example_sam2.py`.
-The default settings are the same as chosen in the paper, so nothing has to be changed.
+The default settings are the same as those chosen in the paper, so except for the `dataset` parameter, no parameter has to be changed for the same evaluation.
 
 #### Configurable Parameters Overview for `example_sam2.py`:
 | Parameter               | Description                                                                                      | Default                                                        |
 |-------------------------|--------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | `test_cases`            | List of model variants prefixes to test (None, "tome_", "grad_tome_", etc.)                   | `[None, "tome_", "grad_tome_", "pitome_", "pitome_v1_", "pitome_v2_"]` |
 | `cfg_path`              | Path to the SAM2.1 configuration YAML file, built as `configs/sam2.1/{prefix}sam2.1_hiera_l.yaml` | `"configs/sam2.1/sam2.1_hiera_l.yaml"`                        |
-| `dataset`               | Dataset for evaluation (via `EvaluateArgs2`)                                                     | `"davis"`                                                     |
+| `dataset`               | Dataset to evaluate (choices: `davis`, `mose`, `sa-v`)                                                     | `"davis"`                                                     |
 | `output`                | Directory or prefix for output results                                                           | `""` (empty string)                                           |
-| `sam2_cfg`              | Full path to the SAM2.1 config used by `EvaluateArgs2`                                            | `cfg_path` variable                                            |
+| `sam2_cfg`              | Full path to the SAM2.1 config used by                                             | `cfg_path` variable                                            |
 | `sam2_checkpoint`       | Path to the SAM2.1 model checkpoint file                                                         | `"sam-hq2/checkpoints/sam2.1_hiera_large.pt"`                |
 | `device`                | Compute device (e.g., `cuda`, `cpu`)                                                             | `"cuda"`                                                     |
 | `input_size`            | Input resolution for FLOPs computation (`[height, width]`)                                       | `[1024, 1024]`                                                |
