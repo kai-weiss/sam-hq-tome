@@ -6,7 +6,7 @@
 Generally, the code in this repository requires python>=3.10, as well as torch>=2.5.1 and torchvision>=0.20.1. 
 Please follow the instructions [here](https://pytorch.org/get-started/locally/) to install both PyTorch and TorchVision dependencies.
 
-It is also strongly recommended to create a conda environment:
+It is also strongly recommended to create a [conda](https://anaconda.org/anaconda/conda) environment:
 ```
 conda create --name sam-hq-tome python=3.10 -y
 conda activate sam-hq-tome
