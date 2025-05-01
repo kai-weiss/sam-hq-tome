@@ -429,7 +429,7 @@ class SAM2ImagePredictor:
             sparse_prompt_embeddings=sparse_embeddings,
             dense_prompt_embeddings=dense_embeddings,
             multimask_output=multimask_output,
-            hq_token_only= hq_token_only,
+            # hq_token_only= hq_token_only,
             repeat_image=batched_mode,
             high_res_features=high_res_features,
         )
