@@ -22,16 +22,18 @@ pip install -e.
 
 Before installing HQ-SAM, make sure you’re in the `segment_anything` folder of this repository:
 
-```bash
+```
 cd segment_anything
+```
 
 Then follow the instructions [here](https://github.com/kai-weiss/sam-hq-tome/tree/main/segment_anything).
 
 #### Installing SAM 2
 Before installing SAM 2, make sure you’re in the `sam-hq2` folder of this repository:
 
-```bash
+```
 cd sam-hq2
+```
 
 Then follow the instructions [here](https://github.com/kai-weiss/sam-hq-tome/tree/main/sam-hq2).
 
