@@ -16,7 +16,6 @@ if __name__ == '__main__':
 
         prefix = setting or ""
         cfg_path = f"configs/sam2.1/{prefix}sam2.1_hiera_l.yaml"
-        # cfg_path = f"configs/sam2.1/{prefix}.yaml"
 
         evaluate_args = EvaluateArgs2(
             dataset="davis",

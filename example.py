@@ -54,7 +54,7 @@ if __name__ == '__main__':
     for setting in test_cases:
         evaluate_args = EvaluateArgs(
             dataset="coift",  # choose between dis, thin, hrsod, coift
-            output="",
+            output="./outputs/",
             model_type="vit_l",
             checkpoint="checkpoints/sam_vit_l_0b3195.pth",
             device="cuda",
@@ -96,8 +96,8 @@ if __name__ == '__main__':
             eval_results = evaluate(args=evaluate_args)
         print(eval_results)
 
-        # if samHQ:
-        #    flops_per_image = get_flops_hq(args=evaluate_args, net=net)
-        # else:
-        #    flops_per_image = get_flops(args=evaluate_args)
-        # print(flops_per_image)
+        if samHQ:
+            flops_per_image = get_flops_hq(args=evaluate_args, net=net)
+        else:
+            flops_per_image = get_flops(args=evaluate_args)
+        print(flops_per_image)
