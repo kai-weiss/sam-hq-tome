@@ -1,6 +1,6 @@
-## Optimizing SAM and SAM-2 Foundation Models: A Token Merging Approach
+# Optimizing SAM and SAM-2 Foundation Models: A Token Merging Approach
 
-### Installation
+## Installation
 
 Generally, the code in this repository requires python>=3.10, as well as torch>=2.5.1 and torchvision>=0.20.1. 
 Please follow the instructions [here](https://pytorch.org/get-started/locally/) to install both PyTorch and TorchVision dependencies.
