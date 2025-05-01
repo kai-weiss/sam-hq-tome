@@ -144,7 +144,7 @@ Make sure to include your setting in the variable `test_cases`.
 Please also refer to [SAM 2 toolkits](https://github.com/facebookresearch/sam2/tree/main/tools) and [SAM 2 Eval](https://github.com/facebookresearch/sam2/tree/main/sav_dataset#sa-v-val-and-test-evaluation) for more information.
 
 For SAM 2, different YAML Files are defined to replicate the test cases used for the paper. 
-They can be found under `sam-hq-tome/sam-hq2/sam2/configs/sam2.1/` are named as follows:
+They can be found under `sam-hq-tome/sam-hq2/sam2/configs/sam2.1/` and are named as follows:
 - sam2.1_hiera_l.yaml
 - tome_sam2.1_hiera_l.yaml
 - grad_tome_sam2.1_hiera_l.yaml
