@@ -65,9 +65,9 @@ sam-hq-tome
    | |____HRSOD
    | |____ThinObject5K
 ```
-# Evaluation
+## Evaluation
 
-## Evaluation on SAM/HQ-SAM
+### Evaluation on SAM/HQ-SAM
 
 The script `example.py` evaluates SAM  with various ToMe (Token Merging) variants, optionally using the HQ Mask Decoder for HQ-SAM. 
 It runs multiple test cases (different ToMe configurations iterating in a loop) and reports evaluation metrics and FLOPs.
