@@ -17,6 +17,8 @@ common_layers = [0, 4, 5, 10, 16, 17, 19, 20, 22, 23]
 
 # Shared parameters
 r = 0.5
+
+# Shared parameters for PiToMe
 margin = 0.5
 alpha = 1.0
 
