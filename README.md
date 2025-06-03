@@ -14,7 +14,7 @@ conda activate sam-hq-tome
 
 Then, install this repository using:
 ```
-git clone https://github.com/xxjsw/tome_sam.git && cd sam-hq-tome
+git clone https://github.com/kai-weiss/sam-hq-tome.git && cd sam-hq-tome
 pip install -e.
 ```
 
