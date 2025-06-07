@@ -265,6 +265,30 @@ def get_flops_sam2(args: EvaluateArgs2) -> dict:
         fa_enc = FlopCountAnalysis(enc, imgs).unsupported_ops_warnings(False).uncalled_modules_warnings(False)
         gflops_enc.append((fa_enc.total() / 1e9) / imgs.size(0))
 
+        # --- memory attention FLOPs ---
+        backbone_out = predictor.forward_image(imgs)
+        _, vision_feats, vision_pos, feat_sizes = predictor._prepare_backbone_features(backbone_out)
+        curr = [vision_feats[-1]]
+        curr_pos = [vision_pos[-1]]
+
+        H, W = feat_sizes[-1]
+        mem_tokens = max(1, H * W * predictor.num_maskmem)
+        mem_dim = predictor.mem_dim
+
+        # Use CPU to avoid potential GPU kernel issues during the FLOP trace
+        mem_device = torch.device("cpu")
+        predictor.memory_attention.to(mem_device)
+        memory = torch.randn(mem_tokens, imgs.size(0), mem_dim, device=mem_device, dtype=curr[0].dtype)
+        memory_pos = torch.randn_like(memory)
+        curr_cpu = [c.to(mem_device) for c in curr]
+        curr_pos_cpu = [c.to(mem_device) for c in curr_pos]
+
+        fa_mem = FlopCountAnalysis(
+            predictor.memory_attention,
+            (curr_cpu, memory, curr_pos_cpu, memory_pos, 0),
+        ).unsupported_ops_warnings(False).uncalled_modules_warnings(False)
+        gflops_mem.append((fa_mem.total() / 1e9) / imgs.size(0))
+
     out = {
         "flops/img(image_encoder)": float(sum(gflops_enc) / len(gflops_enc)),
         "flops/img(memory_attention)": float(sum(gflops_mem) / len(gflops_mem)),
