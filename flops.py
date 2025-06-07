@@ -221,10 +221,8 @@ def get_flops_hq(net, args: EvaluateArgs) -> dict:
     }
 
 
-def get_flops_sam2(args: EvaluateArgs2) -> dict:
 
-    # gflops_sam = []
-    gflops_per_image = []
+def get_flops_sam2(args: EvaluateArgs2) -> dict:
 
     if args.device == 'cuda' and torch.cuda.is_available():
         device = torch.device('cuda')
@@ -256,29 +254,28 @@ def get_flops_sam2(args: EvaluateArgs2) -> dict:
         vos_optimized=args.use_vos_optimized_video_predictor,
     )
     predictor.to(device).eval()
-    image_encoder = predictor.image_encoder
+
+    gflops_enc = []
+    gflops_mem = []
 
     # Do one FLOPs trace and compute GFLOPs per image
     with torch.no_grad():
-        flop_analyzer = FlopCountAnalysis(image_encoder, imgs)
-        flop_analyzer = flop_analyzer.unsupported_ops_warnings(False).uncalled_modules_warnings(False)
-        total_flops = flop_analyzer.total()  # raw FLOPs
-        gflops_per_image.append((total_flops / 1e9) / imgs.size(0))
+        # --- image encoder FLOPs ---
+        enc = predictor.image_encoder
+        fa_enc = FlopCountAnalysis(enc, imgs).unsupported_ops_warnings(False).uncalled_modules_warnings(False)
+        gflops_enc.append((fa_enc.total() / 1e9) / imgs.size(0))
+
+    out = {
+        "flops/img(image_encoder)": float(sum(gflops_enc) / len(gflops_enc)),
+        "flops/img(memory_attention)": float(sum(gflops_mem) / len(gflops_mem)),
+    }
 
     if args.output:
         os.makedirs(args.output, exist_ok=True)
-        filename = os.path.join(args.output, 'flops.json')
-        with open(filename, 'w') as f:
-            json.dump({
-                # 'flops/img(sam)': str(sam_flops_per_image),
-                'flops/img(image_encoder)': str(gflops_per_image),
-                'evaluate_args': convert_to_serializable_dict(args),
-            }, f, indent=4, default=str)
+        with open(os.path.join(args.output, "flops.json"), "w") as f:
+            json.dump({**out, "evaluate_args": convert_to_serializable_dict(args)}, f, indent=4, default=str)
 
-    return {"flops/img(image_encoder)": gflops_per_image}
-
-
-
+    return out
 
 
 if __name__ == "__main__":

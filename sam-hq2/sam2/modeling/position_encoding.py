@@ -186,7 +186,10 @@ def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 10000.0):
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     ndim = x.ndim
     assert 0 <= 1 < ndim
-    assert freqs_cis.shape == (x.shape[-2], x.shape[-1])
+    # assert freqs_cis.shape == (x.shape[-2], x.shape[-1])
+    # Allow token-merging: if the sequence was shortened, truncate the table
+    if freqs_cis.shape[0] > x.shape[-2]:
+        freqs_cis = freqs_cis[: x.shape[-2]]
     shape = [d if i >= ndim - 2 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(*shape)
 

@@ -7,74 +7,13 @@ model:
     _target_: sam2.modeling.backbones.image_encoder.ImageEncoder
     scalp: 1
     trunk:
-      _target_: tome_sam.sam2.tome_hieradet.Hiera
+      _target_: sam2.modeling.backbones.hieradet.Hiera
       embed_dim: 144
       num_heads: 2
       stages: [2, 6, 36, 4]
       global_att_blocks: [23, 33, 43]
       window_pos_embed_bkg_spatial_size: [7, 7]
       window_spec: [8, 4, 16, 8]
-      tome_setting:
-        31:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        32:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        34:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        35:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        37:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        38:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        44:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        45:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        46:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
-        47:
-          _target_: tome_sam.utils.tome_presets.ToMeConfig
-          mode: "tome"
-          params:
-            _target_: tome_sam.utils.tome_presets.ToMe
-            r: 0.5
     neck:
       _target_: sam2.modeling.backbones.image_encoder.FpnNeck
       position_encoding:
@@ -89,11 +28,18 @@ model:
       fpn_interp_model: nearest
 
   memory_attention:
-    _target_: sam2.modeling.memory_attention.MemoryAttention
+    _target_: tome_sam.sam2.tome_memory_attention.ToMeMemoryAttention
     d_model: 256
     pos_enc_at_input: true
+    tome_setting:
+      0:
+        _target_: tome_sam.utils.tome_presets.ToMeConfig
+        mode: "tome"
+        params:
+          _target_: tome_sam.utils.tome_presets.ToMe
+          r: 0.5
     layer:
-      _target_: sam2.modeling.memory_attention.MemoryAttentionLayer
+      _target_: tome_sam.sam2.tome_memory_attention.ToMeMemoryAttentionLayer
       activation: relu
       dim_feedforward: 2048
       dropout: 0.1
