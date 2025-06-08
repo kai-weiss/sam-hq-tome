@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 import torch
 from torch import nn, Tensor
@@ -109,43 +109,45 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
         num_k_exclude_rope: int = 0,
     ) -> torch.Tensor:
 
+        ptr = num_k_exclude_rope
+
+        merge_fn: Optional[Callable]
+        unmerge_fn: Optional[Callable]
+
+        if tome_setting is None or tome_setting.params.r == 0:
+            merge_fn = None
+            unmerge_fn = None
+        else:
+            merge_fn, unmerge_fn = _select_merger(tgt[:, ptr:, :], tome_setting)
+
         def _merge(tokens: Tensor, pos_tok: Optional[Tensor]):
-            """Merge spatial query tokens"""
-            # tome_setting = getattr(self, "tome_setting", None)
+            if merge_fn is None:
+                return tokens, pos_tok
 
-            if tome_setting is None or tome_setting.params.r == 0:
-                return tokens, pos_tok, None  # no merging requested
-
-            ptr = num_k_exclude_rope  # number of pointer / obj‑tokens to keep
-
-            # Split pointer tokens (prefix) and spatial body tokens
             ptr_tok = tokens[:, :ptr, :]
             body_tok = tokens[:, ptr:, :]
-            ptr_pos = None if pos_tok is None else pos_tok[:, :ptr, :]
-            body_pos = None if pos_tok is None else pos_tok[:, ptr:, :]
 
-            merge_fn, unmerge_fn = _select_merger(body_tok, tome_setting)
-            if merge_fn is None:
-                return tokens, pos_tok, None  # nothing merged (too few tokens)
+            merged_tok_body, _ = merge_fn(body_tok)
+            merged_tok = torch.cat([ptr_tok, merged_tok_body], dim=1)
 
-            body_tok_red, _ = merge_fn(body_tok)
-            if body_pos is not None:
-                body_pos_red, _ = merge_fn(body_pos)
-                merged_pos = torch.cat([ptr_pos, body_pos_red], dim=1)
+            if pos_tok is not None:
+                ptr_pos = pos_tok[:, :ptr, :]
+                body_pos = pos_tok[:, ptr:, :]
+                merged_pos_body, _ = merge_fn(body_pos)
+                merged_pos = torch.cat([ptr_pos, merged_pos_body], dim=1)
             else:
                 merged_pos = None
 
-            merged_tok = torch.cat([ptr_tok, body_tok_red], dim=1)
+            return merged_tok, merged_pos
 
-            # Build closure -> unmerge back to original length
-            def _unmerge(proc: Tensor):
-                ptr_proc = proc[:, :ptr, :]
-                body_proc = proc[:, ptr:, :]
-                body_full = unmerge_fn(body_proc)
-                return torch.cat([ptr_proc, body_full], dim=1)
+        def _unmerge(proc: Tensor):
+            if merge_fn is None:
+                return proc
 
-            # print("test1", tome_setting, tokens, merged_tok)
-            return merged_tok, merged_pos, _unmerge
+            ptr_proc = proc[:, :ptr, :]
+            body_proc = proc[:, ptr:, :]
+            body_full = unmerge_fn(body_proc)
+            return torch.cat([ptr_proc, body_full], dim=1)
 
         tome_selfAttn = True
         tome_crossAttn = True
@@ -153,29 +155,29 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
 
         # Self-Attn
         if tome_selfAttn:
-            m_tgt, m_qpos, un_sa = _merge(tgt, query_pos)
+            m_tgt, m_qpos = _merge(tgt, query_pos)
             sa_out = self._forward_sa(m_tgt, m_qpos)
-            tgt = un_sa(sa_out) if un_sa is not None else sa_out
+            tgt = _unmerge(sa_out)
         else:
             tgt = self._forward_sa(tgt, query_pos)
 
         # Cross-Attn
         if tome_crossAttn:
-            m_tgt, m_qpos, un_ca = _merge(tgt, query_pos)
+            m_tgt, m_qpos = _merge(tgt, query_pos)
             ca_out = self._forward_ca(
                 m_tgt, memory, m_qpos, pos, num_k_exclude_rope
             )
-            tgt = un_ca(ca_out) if un_ca is not None else ca_out
+            tgt = _unmerge(ca_out)
         else:
             tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)
 
         # MLP
         if tome_MLP:
-            m_tgt, _, un_mlp = _merge(tgt, query_pos)
+            m_tgt, _ = _merge(tgt, query_pos)
             tgt2 = self.norm3(m_tgt)
             tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
             mlp_out = m_tgt + self.dropout3(tgt2)
-            tgt = un_mlp(mlp_out) if un_mlp is not None else mlp_out
+            tgt = _unmerge(mlp_out)
         else:
             tgt2 = self.norm3(tgt)
             tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
