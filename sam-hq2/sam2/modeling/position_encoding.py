@@ -186,10 +186,13 @@ def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 10000.0):
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     ndim = x.ndim
     assert 0 <= 1 < ndim
+    # Original code:
     # assert freqs_cis.shape == (x.shape[-2], x.shape[-1])
+    # --> [Start] Adjusted for ToMe code
     # Allow token-merging: if the sequence was shortened, truncate the table
     if freqs_cis.shape[0] > x.shape[-2]:
         freqs_cis = freqs_cis[: x.shape[-2]]
+    # <-- [End] Adjusted for ToMe code
     shape = [d if i >= ndim - 2 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(*shape)
 
@@ -213,12 +216,21 @@ def apply_rotary_enc(
         return xq_out.type_as(xq).to(xq.device), xk
     # repeat freqs along seq_len dim to match k seq_len
     if repeat_freqs_k:
-        r = xk_.shape[-2] // xq_.shape[-2]
+        # Original code:
+        # r = xk_.shape[-2] // xq_.shape[-2]
+        # --> [Start] Adjusted for ToMe code
+        q_len = xq_.shape[-2]
+        k_len = xk_.shape[-2]
+        r = math.ceil(k_len / q_len)
+        # <-- [End] Adjusted for ToMe code
         if freqs_cis.is_cuda:
             freqs_cis = freqs_cis.repeat(*([1] * (freqs_cis.ndim - 2)), r, 1)
         else:
             # torch.repeat on complex numbers may not be supported on non-CUDA devices
             # (freqs_cis has 4 dims and we repeat on dim 2) so we use expand + flatten
             freqs_cis = freqs_cis.unsqueeze(2).expand(-1, -1, r, -1, -1).flatten(2, 3)
+        # --> [Start] Adjusted for ToMe code
+        freqs_cis = freqs_cis[..., :k_len, :]
+        # <-- [End] Adjusted for ToMe code
     xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
     return xq_out.type_as(xq).to(xq.device), xk_out.type_as(xk).to(xk.device)

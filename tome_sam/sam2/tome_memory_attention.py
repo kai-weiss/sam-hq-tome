@@ -147,26 +147,40 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
             # print("test1", tome_setting, tokens, merged_tok)
             return merged_tok, merged_pos, _unmerge
 
+        tome_selfAttn = False
+        tome_crossAttn = False
+        tome_MLP = True
+
         # Self-Attn
-        m_tgt, m_qpos, un_sa = _merge(tgt, query_pos)
-        sa_out = self._forward_sa(m_tgt, m_qpos)
-        tgt = un_sa(sa_out) if un_sa is not None else sa_out
+        if tome_selfAttn:
+            m_tgt, m_qpos, un_sa = _merge(tgt, query_pos)
+            sa_out = self._forward_sa(m_tgt, m_qpos)
+            tgt = un_sa(sa_out) if un_sa is not None else sa_out
+        else:
+            tgt = self._forward_sa(tgt, query_pos)
 
         # Cross-Attn
-        # tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)
-        m_tgt, m_qpos, un_ca = _merge(tgt, query_pos)
-        ca_out = self._forward_ca(
-            m_tgt, memory, m_qpos, pos, num_k_exclude_rope
-        )
-        tgt = un_ca(ca_out) if un_ca is not None else ca_out
+        if tome_crossAttn:
+            m_tgt, m_qpos, un_ca = _merge(tgt, query_pos)
+            ca_out = self._forward_ca(
+                m_tgt, memory, m_qpos, pos, num_k_exclude_rope
+            )
+            tgt = un_ca(ca_out) if un_ca is not None else ca_out
+        else:
+            tgt = self._forward_ca(tgt, memory, query_pos, pos, num_k_exclude_rope)
 
         # MLP
-        m_tgt, _, un_mlp = _merge(tgt, query_pos)
+        if tome_MLP:
+            m_tgt, _, un_mlp = _merge(tgt, query_pos)
+            tgt2 = self.norm3(m_tgt)
+            tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
+            mlp_out = m_tgt + self.dropout3(tgt2)
+            tgt = un_mlp(mlp_out) if un_mlp is not None else mlp_out
+        else:
+            tgt2 = self.norm3(tgt)
+            tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
+            tgt = tgt + self.dropout3(tgt2)
 
-        tgt2 = self.norm3(m_tgt)
-        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
-        mlp_out = m_tgt + self.dropout3(tgt2)
-        tgt = un_mlp(mlp_out) if un_mlp is not None else mlp_out
         return tgt
 
 
