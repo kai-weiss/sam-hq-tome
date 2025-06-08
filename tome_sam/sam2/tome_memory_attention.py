@@ -147,8 +147,8 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
             # print("test1", tome_setting, tokens, merged_tok)
             return merged_tok, merged_pos, _unmerge
 
-        tome_selfAttn = False
-        tome_crossAttn = False
+        tome_selfAttn = True
+        tome_crossAttn = True
         tome_MLP = True
 
         # Self-Attn
