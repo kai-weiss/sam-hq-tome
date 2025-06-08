@@ -302,15 +302,19 @@ def get_flops_sam2(args: EvaluateArgs2) -> dict:
 
         # high-res features if available
         if len(feat_sizes) > 1:
+            conv_out_channels = [
+                predictor.sam_mask_decoder.conv_s0.out_channels,
+                predictor.sam_mask_decoder.conv_s1.out_channels,
+            ]
             high_res_features = [
                 torch.randn(
                     imgs.size(0),
-                    predictor.hidden_dim,
+                    c,
                     s[0],
                     s[1],
                     device=mask_device,
                 )
-                for s in feat_sizes[:-1]
+                for c, s in zip(conv_out_channels, feat_sizes[:-1])
             ]
         else:
             high_res_features = None
