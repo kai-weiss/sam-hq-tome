@@ -257,6 +257,7 @@ def get_flops_sam2(args: EvaluateArgs2) -> dict:
 
     gflops_enc = []
     gflops_mem = []
+    gflops_mask = []
 
     # Do one FLOPs trace and compute GFLOPs per image
     with torch.no_grad():
@@ -289,9 +290,66 @@ def get_flops_sam2(args: EvaluateArgs2) -> dict:
         ).unsupported_ops_warnings(False).uncalled_modules_warnings(False)
         gflops_mem.append((fa_mem.total() / 1e9) / imgs.size(0))
 
+        # --- mask decoder FLOPs ---
+        mask_device = torch.device("cpu")
+        predictor.sam_mask_decoder.to(mask_device)
+        predictor.sam_prompt_encoder.to(mask_device)
+
+        # create random fused feature with correct shape
+        pix_feat = torch.randn(
+            imgs.size(0), predictor.hidden_dim, H, W, device=mask_device
+        )
+
+        # high-res features if available
+        if len(feat_sizes) > 1:
+            high_res_features = [
+                torch.randn(
+                    imgs.size(0),
+                    predictor.hidden_dim,
+                    s[0],
+                    s[1],
+                    device=mask_device,
+                )
+                for s in feat_sizes[:-1]
+            ]
+        else:
+            high_res_features = None
+
+        sam_point_coords = torch.zeros(
+            imgs.size(0), 1, 2, device=mask_device
+        )
+        sam_point_labels = -torch.ones(
+            imgs.size(0), 1, dtype=torch.int32, device=mask_device
+        )
+        sparse_emb, dense_emb = predictor.sam_prompt_encoder(
+            points=(sam_point_coords, sam_point_labels),
+            boxes=None,
+            masks=None,
+        )
+        dense_pe = predictor.sam_prompt_encoder.get_dense_pe().to(mask_device)
+
+        fa_mask = (
+            FlopCountAnalysis(
+                predictor.sam_mask_decoder,
+                (
+                    pix_feat,
+                    dense_pe,
+                    sparse_emb,
+                    dense_emb,
+                    args.multiple_masks,
+                    False,
+                    high_res_features,
+                ),
+            )
+            .unsupported_ops_warnings(False)
+            .uncalled_modules_warnings(False)
+        )
+        gflops_mask.append((fa_mask.total() / 1e9) / imgs.size(0))
+
     out = {
         "flops/img(image_encoder)": float(sum(gflops_enc) / len(gflops_enc)),
         "flops/img(memory_attention)": float(sum(gflops_mem) / len(gflops_mem)),
+        "flops/img(mask_decoder)": float(sum(gflops_mask) / len(gflops_mask)),
     }
 
     if args.output:
