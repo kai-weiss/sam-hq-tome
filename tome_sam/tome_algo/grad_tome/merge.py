@@ -1,3 +1,4 @@
+import math
 from typing import Callable, Tuple
 import torch
 import torch.nn.functional as F
@@ -141,7 +142,17 @@ def grad_bipartite_soft_matching(metric: torch.Tensor,
         if r <= 0:
             return do_nothing, do_nothing
 
-        H = W = int(N**0.5)
+        H = int(math.sqrt(N))
+        while H > 1 and N % H != 0:
+            H -= 1
+        W = N // H
+
+        # ensure H divisible by sy and W divisible by sx, otherwise fall back to
+        # smaller strides
+        if H % sy != 0:
+            sy = math.gcd(H, sy) if math.gcd(H, sy) > 0 else 1
+        if W % sx != 0:
+            sx = math.gcd(W, sx) if math.gcd(W, sx) > 0 else 1
 
         if grad_method == 'sobel':
             grad = get_sobel_gradient(metric.view(B, H, W, C)) # (B, H, W)
