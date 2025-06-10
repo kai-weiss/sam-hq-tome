@@ -149,6 +149,7 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
             body_full = unmerge_fn(body_proc)
             return torch.cat([ptr_proc, body_full], dim=1)
 
+        # Optimal setting
         tome_selfAttn = True
         tome_crossAttn = True
         tome_MLP = True
