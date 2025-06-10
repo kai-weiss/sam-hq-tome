@@ -109,7 +109,11 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
         num_k_exclude_rope: int = 0,
     ) -> torch.Tensor:
 
-        ptr = num_k_exclude_rope
+        # The query tokens fed into the memory attention do not contain the object pointer tokens.
+        # Those pointers are only appended to the memory (keys/values).
+        # Hence we should not exclude any tokens from the ToMe merging process.
+        # num_k_exclude_rope is still used when calling cross attention but should not affect token merging.
+        ptr = 0
 
         merge_fn: Optional[Callable]
         unmerge_fn: Optional[Callable]
@@ -118,7 +122,7 @@ class ToMeMemoryAttentionLayer(MemoryAttentionLayer):
             merge_fn = None
             unmerge_fn = None
         else:
-            merge_fn, unmerge_fn = _select_merger(tgt[:, ptr:, :], tome_setting)
+            merge_fn, unmerge_fn = _select_merger(tgt, tome_setting)
 
         def _merge(tokens: Tensor, pos_tok: Optional[Tensor]):
             if merge_fn is None:
