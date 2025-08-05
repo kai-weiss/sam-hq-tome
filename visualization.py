@@ -8,6 +8,7 @@ import torch
 import numpy as np
 from matplotlib import pyplot as plt, patches
 from skimage import io, measure
+from pathlib import Path
 
 from evaluate import EvaluateArgs
 from maskdecoderhq import MaskDecoderHQExample
@@ -19,8 +20,10 @@ import torch.nn.functional as F
 
 from sam2.build_sam import build_sam2_video_predictor, build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
+from visualization_grid import make_token_merge_grid
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
 
@@ -34,6 +37,7 @@ class VisualizeArgs:
     seed: int
     input_size: List[int]
     tome_setting: Optional[SAMToMeSetting] = None
+
 
 def plot_image_mask_bbox(image, pred_mask, gt_mask, bounding_box, save_path='output.png'):
     """
@@ -91,7 +95,7 @@ def show_anns(anns):
     ax.set_autoscale_on(False)
 
     img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
-    img[:,:,3] = 0
+    img[:, :, 3] = 0
     for ann in sorted_anns:
         m = ann['segmentation']
         color_mask = np.concatenate([np.random.random(3), [0.35]])
@@ -112,11 +116,11 @@ def visualize_automatic_mask_generator(args: VisualizeArgs, original_resolution=
 
     mask_generator = SamAutomaticMaskGenerator(model=tome_sam,
                                                points_per_side=32,
-                                                pred_iou_thresh=0.86,
-                                                stability_score_thresh=0.92,
-                                                crop_n_layers=1,
-                                                crop_n_points_downscale_factor=2,
-                                                min_mask_region_area=100)
+                                               pred_iou_thresh=0.86,
+                                               stability_score_thresh=0.92,
+                                               crop_n_layers=1,
+                                               crop_n_points_downscale_factor=2,
+                                               min_mask_region_area=100)
     image = cv2.imread(args.input_image)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     masks = mask_generator.generate(image)
@@ -128,9 +132,7 @@ def visualize_automatic_mask_generator(args: VisualizeArgs, original_resolution=
     plt.close(fig)
 
 
-
-
-def visualize_output_mask(args: VisualizeArgs, original_resolution=False):
+def visualize_output_mask(args: VisualizeArgs, original_resolution=False, save_grid=True):
     seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -152,15 +154,16 @@ def visualize_output_mask(args: VisualizeArgs, original_resolution=False):
     if im.shape[2] == 1:
         im = np.repeat(im, 3, axis=2)
     im = torch.tensor(im.copy(), dtype=torch.float32)
-    im = torch.transpose(torch.transpose(im, 1, 2), 0, 1) # (3, H, W)
+    im = torch.transpose(torch.transpose(im, 1, 2), 0, 1)  # (3, H, W)
     _, original_H, original_W = im.shape
-    gt = torch.unsqueeze(torch.tensor(gt, dtype=torch.float32), 0) # (1, H, W)
+    gt = torch.unsqueeze(torch.tensor(gt, dtype=torch.float32), 0)  # (1, H, W)
 
     # Resize
     resized_im = torch.squeeze(F.interpolate(torch.unsqueeze(im, 0), args.input_size, mode='bilinear'), dim=0)
-    resized_gt= torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'), dim=0) # (1, H, W)
+    resized_gt = torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'),
+                               dim=0)  # (1, H, W)
 
-    resized_bounding_box = misc.masks_to_boxes(resized_gt[0].unsqueeze(0)) # (1, 4)
+    resized_bounding_box = misc.masks_to_boxes(resized_gt[0].unsqueeze(0))  # (1, 4)
 
     dict_input = dict()
     dict_input['image'] = resized_im.to(torch.uint8)
@@ -168,10 +171,30 @@ def visualize_output_mask(args: VisualizeArgs, original_resolution=False):
     dict_input['original_size'] = resized_im.shape[1:]
 
     with torch.no_grad():
-        resized_mask = tome_sam([dict_input], multimask_output=False)[0][0]['masks'][0] # (1, H, W)
+        resized_mask = tome_sam([dict_input], multimask_output=False)[0][0]['masks'][0]  # (1, H, W)
+
+    if save_grid:
+        try:
+            img_vis = resized_im.permute(1, 2, 0).cpu().numpy()
+            source = tome_sam._info["source"]  # shape [B, L, HW]
+            attn = tome_sam.blocks[-1].attn.attention_map.sum(1)[:, 0, :]  # [B, HW]
+
+            grid_img = make_token_merge_grid(
+                img_vis,
+                source,
+                attn,
+                patch_size=16,
+                class_token=False,
+            )
+            grid_path = Path(args.output).with_suffix("_grid.png")
+            grid_img.save(grid_path)
+            print(f"Grid saved → {grid_path}")
+        except Exception as e:
+            print("[WARN] Grid‑Overlay konnte nicht erzeugt werden:", e)
 
     # evaluation on original resolution
-    mask = torch.squeeze(F.interpolate(torch.unsqueeze(resized_mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
+    mask = torch.squeeze(
+        F.interpolate(torch.unsqueeze(resized_mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
     bounding_box = misc.masks_to_boxes(gt[0].unsqueeze(0))
     m_iou = misc.mask_iou(mask, gt)
     b_iou = misc.boundary_iou(gt, mask)
@@ -181,7 +204,8 @@ def visualize_output_mask(args: VisualizeArgs, original_resolution=False):
     else:
         plot_image_mask_bbox(resized_im, resized_mask, resized_gt, resized_bounding_box, save_path=args.output)
 
-def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resolution=False):
+
+def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resolution=False, save_grid=True):
     seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -199,15 +223,16 @@ def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resoluti
     if im.shape[2] == 1:
         im = np.repeat(im, 3, axis=2)
     im = torch.tensor(im.copy(), dtype=torch.float32)
-    im = torch.transpose(torch.transpose(im, 1, 2), 0, 1) # (3, H, W)
+    im = torch.transpose(torch.transpose(im, 1, 2), 0, 1)  # (3, H, W)
     _, original_H, original_W = im.shape
-    gt = torch.unsqueeze(torch.tensor(gt, dtype=torch.float32), 0) # (1, H, W)
+    gt = torch.unsqueeze(torch.tensor(gt, dtype=torch.float32), 0)  # (1, H, W)
 
     # Resize
     resized_im = torch.squeeze(F.interpolate(torch.unsqueeze(im, 0), args.input_size, mode='bilinear'), dim=0)
-    resized_gt= torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'), dim=0) # (1, H, W)
+    resized_gt = torch.squeeze(F.interpolate(torch.unsqueeze(gt, 0), args.input_size, mode='bilinear'),
+                               dim=0)  # (1, H, W)
 
-    resized_bounding_box = misc.masks_to_boxes(resized_gt[0].unsqueeze(0)) # (1, 4)
+    resized_bounding_box = misc.masks_to_boxes(resized_gt[0].unsqueeze(0))  # (1, 4)
 
     # ----- SAM 2 replacement ----------------
     with torch.inference_mode(), torch.autocast("cuda", torch.bfloat16):
@@ -218,8 +243,28 @@ def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resoluti
         )
         resized_mask = torch.from_numpy(masks[0]).unsqueeze(0)  # (1, H, W)
 
+    if save_grid:
+        try:
+            img_vis = resized_im.permute(1, 2, 0).cpu().numpy()
+            source = sam2_core.visual_encoder._info["source"]
+            attn = sam2_core.visual_encoder.blocks[-1].attn.attention_map.sum(1)[:, 0, :]
+
+            grid_img = make_token_merge_grid(
+                img_vis,
+                source,
+                attn,
+                patch_size=16,
+                class_token=False,
+            )
+            grid_path = Path(args.output).with_suffix("_grid.png")
+            grid_img.save(grid_path)
+            print(f"Grid saved → {grid_path}")
+        except Exception as e:
+            print("[WARN] Grid‑Overlay für SAM 2 konnte nicht erzeugt werden:", e)
+
     # evaluation on original resolution
-    mask = torch.squeeze(F.interpolate(torch.unsqueeze(resized_mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
+    mask = torch.squeeze(
+        F.interpolate(torch.unsqueeze(resized_mask.float(), 0), [original_H, original_W], mode='bilinear'), dim=0)
     bounding_box = misc.masks_to_boxes(gt[0].unsqueeze(0))
     m_iou = misc.mask_iou(mask, gt)
     b_iou = misc.boundary_iou(gt, mask)
@@ -229,6 +274,7 @@ def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resoluti
     else:
         plot_image_mask_bbox(resized_im, resized_mask, resized_gt, resized_bounding_box, save_path=args.output)
 
+
 if __name__ == '__main__':
 
     # Parameters for SAM2
@@ -236,7 +282,7 @@ if __name__ == '__main__':
     cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
 
     # Activate SAM-HQ
-    samHQ = True
+    samHQ = False
 
     # Define which transformer layers to apply ToMe on
     # common_layers = [0, 4, 5, 10, 16, 17, 19, 20, 22, 23]
