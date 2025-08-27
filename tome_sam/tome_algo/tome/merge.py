@@ -14,7 +14,8 @@ import torch
 def do_nothing(x: torch.Tensor, mode: str = None):
     return x
 
-def safe_normalize(x: torch.Tensor, dim: int=-1, eps: float=1e-12):
+
+def safe_normalize(x: torch.Tensor, dim: int = -1, eps: float = 1e-12):
     """
     Safely normalize a tensor by handling zero vectors.
     Args:
@@ -32,6 +33,7 @@ def safe_normalize(x: torch.Tensor, dim: int=-1, eps: float=1e-12):
 
     return x
 
+
 def mps_gather_workaround(input, dim, index):
     if input.shape[-1] == 1:
         return torch.gather(
@@ -41,11 +43,13 @@ def mps_gather_workaround(input, dim, index):
         ).squeeze(-1)
     else:
         return torch.gather(input, dim, index)
+
+
 def bipartite_soft_matching(
-    metric: torch.Tensor,
-    r: int,
-    class_token: bool = False,
-    distill_token: bool = False,
+        metric: torch.Tensor,
+        r: int,
+        class_token: bool = False,
+        distill_token: bool = False,
 ) -> Tuple[Callable, Callable]:
     """
     Applies ToMe with a balanced matching set (50%, 50%).
@@ -108,7 +112,7 @@ def bipartite_soft_matching(
 
         # To find out indices w.r.t input tensor x, above unm_idx and src_idx are w.r.t src(a_idx), dst_idx is w.r.t dst(b_idx)
         # (B*num_heads, N_unm)
-        unm_absolute_indices = gather(a_idx.expand(n, a.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
+        unm_absolute_indices = gather(a_idx.expand(n, a_idx.shape[1], 1), dim=1, index=unm_idx).squeeze(-1)
         # (B*num_heads, N_dst)
         dst_absolute_indices = b_idx.squeeze(-1).expand(n, -1)
         absolute_indices = torch.cat([unm_absolute_indices, dst_absolute_indices], dim=1)
@@ -137,7 +141,7 @@ def bipartite_soft_matching(
 
 
 def kth_bipartite_soft_matching(
-    metric: torch.Tensor, k: int
+        metric: torch.Tensor, k: int
 ) -> Tuple[Callable, Callable]:
     """
     Applies ToMe with the two sets as (every kth element, the rest).
@@ -193,7 +197,7 @@ def kth_bipartite_soft_matching(
 
 
 def random_bipartite_soft_matching(
-    metric: torch.Tensor, r: int
+        metric: torch.Tensor, r: int
 ) -> Tuple[Callable, Callable]:
     """
     Applies ToMe with the two sets as (r chosen randomly, the rest).
@@ -247,7 +251,7 @@ def random_bipartite_soft_matching(
 
 
 def merge_wavg(
-    merge: Callable, x: torch.Tensor, size: torch.Tensor = None
+        merge: Callable, x: torch.Tensor, size: torch.Tensor = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Applies the merge function by taking a weighted average based on token size.
@@ -263,16 +267,23 @@ def merge_wavg(
     return x, size
 
 
+
 def merge_source(
-    merge: Callable, x: torch.Tensor, source: torch.Tensor = None
-) -> torch.Tensor:
+    merge: Callable,
+    unmerge: Callable,
+    x: torch.Tensor,
+    source: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     For source tracking. Source is an adjacency matrix between the initial tokens and final merged groups.
     x is used to find out how many tokens there are in case the source is None.
     """
     if source is None:
-        n, t, _ = x.shape
-        source = torch.eye(t, device=x.device)[None, ...].expand(n, t, t)
+        B, T, _ = x.shape
+        source = torch.eye(T, device=x.device, dtype=x.dtype)[None].expand(B, T, T)
 
-    source = merge(source, mode="amax")
-    return source
+    source = source.to(x.device)
+    merged, _ = merge(source, mode="amax")   # [B, T', T0]
+    group_ids = merged.argmax(dim=1)         # [B, T0]  (before unmerge!)
+    source_unmerged = unmerge(merged)        # [B, T,  T0]
+    return source_unmerged, group_ids

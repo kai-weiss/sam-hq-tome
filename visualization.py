@@ -176,8 +176,10 @@ def visualize_output_mask(args: VisualizeArgs, original_resolution=False, save_g
     if save_grid:
         try:
             img_vis = resized_im.permute(1, 2, 0).cpu().numpy()
-            source = tome_sam._info["source"]  # shape [B, L, HW]
-            attn = tome_sam.blocks[-1].attn.attention_map.sum(1)[:, 0, :]  # [B, HW]
+            source = tome_sam.image_encoder._info["source"]  # shape [B, L, HW]
+            print("source shape:", tuple(source.shape))
+            print("uniq per layer:", [torch.unique(source[0, i]).numel() for i in range(source.shape[1])])
+            attn = tome_sam.image_encoder.blocks[-1].attn.attention_map.sum(1)[:, 0, :]
 
             grid_img = make_token_merge_grid(
                 img_vis,
@@ -185,8 +187,9 @@ def visualize_output_mask(args: VisualizeArgs, original_resolution=False, save_g
                 attn,
                 patch_size=16,
                 class_token=False,
+                layer="last"
             )
-            grid_path = Path(args.output).with_suffix("_grid.png")
+            grid_path = Path(args.output).with_name(Path(args.output).stem + "_grid.png")
             grid_img.save(grid_path)
             print(f"Grid saved → {grid_path}")
         except Exception as e:
@@ -246,8 +249,36 @@ def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resoluti
     if save_grid:
         try:
             img_vis = resized_im.permute(1, 2, 0).cpu().numpy()
-            source = sam2_core.visual_encoder._info["source"]
-            attn = sam2_core.visual_encoder.blocks[-1].attn.attention_map.sum(1)[:, 0, :]
+            enc = sam2_core.image_encoder
+            trunk = getattr(enc, "trunk", enc)
+
+            print("SAM2 trunk class:", type(trunk), "module:", getattr(type(trunk), "__module__", None))
+
+            source = None
+            if hasattr(trunk, "_info") and trunk._info is not None and "source" in trunk._info:
+                source = trunk._info["source"]  # erwartetes Shape: [B, L_global, HW]
+                print("SAM2 source shape:", tuple(source.shape))
+
+            if (source is None) or (source.shape[1] == 0):
+                ph = resized_im.shape[1] // 16
+                pw = resized_im.shape[2] // 16
+                HW = ph * pw
+                device = resized_im.device
+                source = torch.arange(HW, device=device, dtype=torch.long)[None, None, :]  # [1,1,HW]
+                print("SAM2 fallback identity source:", tuple(source.shape))
+
+            attn = None
+            try:
+                blocks = getattr(trunk, "blocks", None)
+                if blocks is not None:
+                    last_global_idx = max([i for i, b in enumerate(blocks) if getattr(b, "window_size", 0) == 0])
+                    attn_map = getattr(blocks[last_global_idx].attn, "attention_map", None)
+                    if attn_map is not None:
+                        attn = attn_map.sum(1)[:, 0, :]  # [B, HW_attn]
+            except Exception:
+                pass
+            if attn is None:
+                attn = torch.ones((source.shape[0], source.shape[-1]), device=source.device)
 
             grid_img = make_token_merge_grid(
                 img_vis,
@@ -255,12 +286,13 @@ def visualize_output_mask_sam2(args: VisualizeArgs, cfg, ckpt, original_resoluti
                 attn,
                 patch_size=16,
                 class_token=False,
+                layer="last",
             )
-            grid_path = Path(args.output).with_suffix("_grid.png")
+            grid_path = Path(args.output).with_name(Path(args.output).stem + "_grid.png")
             grid_img.save(grid_path)
             print(f"Grid saved → {grid_path}")
         except Exception as e:
-            print("[WARN] Grid‑Overlay für SAM 2 konnte nicht erzeugt werden:", e)
+            print("[WARN] Grid-Overlay für SAM 2 konnte nicht erzeugt werden:", e)
 
     # evaluation on original resolution
     mask = torch.squeeze(
@@ -321,16 +353,18 @@ if __name__ == '__main__':
 
     init = False
     args = VisualizeArgs(
-        input_image='data/DIS5K/DIS-VD/im/7#Electrical#1#Cable#3142447262_1f6832e91c_o.jpg',
-        input_mask='data/DIS5K/DIS-VD/gt/7#Electrical#1#Cable#3142447262_1f6832e91c_o.png',
+        input_image='data/DIS5K/DIS-VD/im/1#Accessories#3#Eyeglasses#17289403611_8977c33e8a_o.jpg',
+        input_mask='data/DIS5K/DIS-VD/gt/1#Accessories#3#Eyeglasses#17289403611_8977c33e8a_o.png',
+        # input_image='data/thin_object_detection/HRSOD/images/45814399375_7b56029c0b_o.jpg',
+        # input_mask='data/thin_object_detection/HRSOD/masks_max255/45814399375_7b56029c0b_o.png',
         # input_image='data/DAVIS/JPEGImages/Full-Resolution/camel/00024.jpg',
         # input_mask='data/DAVIS/Annotations/Full-Resolution/camel/00024.png',
-        output='sam2_none.png',
+        output='sam_none.png',
         model_type="vit_l",
         checkpoint="checkpoints/sam_vit_l_0b3195.pth",
         seed=42,
         input_size=[1024, 1024],
-        tome_setting=None,
+        tome_setting=tome_setting,
     )
 
     evaluate_args = EvaluateArgs(
@@ -348,7 +382,7 @@ if __name__ == '__main__':
         rank=0,
         multiple_masks=False,
         restore_model="work_dirs/hq_sam_l/epoch_11.pth",
-        tome_setting=None,
+        tome_setting=pitome_setting_v2,
     )
 
     if samHQ:
@@ -371,6 +405,6 @@ if __name__ == '__main__':
         else:
             net_without_ddp.load_state_dict(torch.load(evaluate_args.restore_model, map_location="cpu"))
 
-    # visualize_output_mask_sam2(args=args, cfg=cfg, ckpt=ckpt)
-    visualize_output_mask(args)
-    # visualize_automatic_mask_generator(args)
+    visualize_output_mask_sam2(args=args, cfg=cfg, ckpt=ckpt)
+    # visualize_output_mask(args)
+

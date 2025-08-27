@@ -27,7 +27,7 @@ from tome_sam.tome_algo.grad_tome.merge import grad_bipartite_soft_matching
 from tome_sam.tome_algo.pitome.merge import pitome_vision
 from tome_sam.tome_algo.pitome.merge_v1 import pitome_vision_v1
 from tome_sam.tome_algo.pitome.merge_v2 import pitome_vision_v2
-from tome_sam.tome_algo.tome.merge import bipartite_soft_matching
+from tome_sam.tome_algo.tome.merge import bipartite_soft_matching, merge_source
 from tome_sam.tome_algo.tomesd.merge import bipartite_soft_matching_random2d, random_25_bipartite_soft_matching
 from tome_sam.utils.tome_presets import ToMeConfig, SAMToMeSetting
 
@@ -58,7 +58,7 @@ class EfficientMultiScaleAttention(MultiScaleAttention):
         super().__init__(dim, dim_out, num_heads, q_pool)
         self.tome_setting = tome_setting
 
-    def forward(self, x: torch.Tensor, merge_operations=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, source: torch.Tensor | None = None):
         B, H, W, _ = x.shape
         C = self.dim_out // self.num_heads  # Matches the qkv output dimension
 
@@ -131,6 +131,7 @@ class EfficientMultiScaleAttention(MultiScaleAttention):
 
 
         x_reduced, merged_indices = x_merge(x)
+        source, group_ids = merge_source(x_merge, x_unmerge, x, source)
         _, N_reduced, _ = x_reduced.shape
         # qkv in shape of (B, N_reduced, 3*nHeads*C)
         qkv = self.qkv(x_reduced)
@@ -162,7 +163,7 @@ class EfficientMultiScaleAttention(MultiScaleAttention):
 
         x = self.proj(x)
 
-        return x
+        return x, source, group_ids
 
 
 class MultiScaleBlock(nn.Module):
@@ -226,22 +227,41 @@ class MultiScaleBlock(nn.Module):
         if dim != dim_out:
             self.proj = nn.Linear(dim, dim_out)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, source: torch.Tensor | None = None):
         shortcut = x  # B, H, W, C
         x = self.norm1(x)
 
         # Skip connection
+        sc = shortcut
         if self.dim != self.dim_out:
-            shortcut = do_pool(self.proj(x), self.pool)
+            sc = do_pool(self.proj(x), self.pool)
 
         # Window partition
         window_size = self.window_size
         if window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, window_size)
+            if source is not None:
+                B_, N, N0 = source.shape
+                assert N == H * W, "source and x token counts differ"
+                ws = window_size
+                src = source.view(B_, H, W, N0)
+                src, _ = window_partition(src, ws)
+                source = src.view(src.shape[0], ws * ws, N0)
 
-        # Window Attention + Q Pooling (if stage change)
-        x = self.attn(x)
+        # -----  Window Attention + Q Pooling (if stage change)
+        group_ids = None
+        if hasattr(self.attn, "tome_setting") and self.attn.tome_setting is not None:
+            x, source, group_ids = self.attn(x, source)
+        else:
+            # Plain MultiScaleAttention
+            x = self.attn(x)
+            if source is not None and window_size == 0:
+                B_now, H_now, W_now, _ = x.shape
+                HW = H_now * W_now
+                group_ids = torch.arange(HW, device=x.device, dtype=torch.long)[None, :].expand(B_now, -1)
+
+
         if self.q_stride:
             # Shapes have changed due to Q pooling
             window_size = self.window_size // self.q_stride[0]
@@ -254,11 +274,19 @@ class MultiScaleBlock(nn.Module):
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, window_size, pad_hw, (H, W))
+            if source is not None:
+                ws = window_size
+                src = source.view(-1, ws, ws, source.shape[-1])
+                src = window_unpartition(src, ws, pad_hw, (H, W))  # [B, H, W, N0]
+                source = src.view(src.shape[0], H * W, -1)  # [B, HW, N0]
 
-        x = shortcut + self.drop_path(x)
         # MLP
+        x = sc + self.drop_path(x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
+
+        if source is None:
+            return x
+        return x, source, group_ids
 
 
 class Hiera(nn.Module):
@@ -296,7 +324,7 @@ class Hiera(nn.Module):
     ):
         print(f"ToMe: {tome_setting}")
         super().__init__()
-
+        self._info = None
         assert len(stages) == len(window_spec)
         self.window_spec = window_spec
 
@@ -387,21 +415,31 @@ class Hiera(nn.Module):
         pos_embed = pos_embed.permute(0, 2, 3, 1)
         return pos_embed
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        x = self.patch_embed(x)
-        # x: (B, H, W, C)
-
-        # Add pos embed
+    def forward(self, x: torch.Tensor):
+        x = self.patch_embed(x)  # (B, H, W, C)
         x = x + self._get_pos_embed(x.shape[1:3])
+
+        B, H, W, _ = x.shape
+        tokens = H * W
+        source = torch.eye(tokens, device=x.device)[None, ...].expand(B, tokens, tokens)
+        source_layers = []  # will hold [B, HW] per global block
 
         outputs = []
         for i, blk in enumerate(self.blocks):
-            x = blk(x)
-            if (i == self.stage_ends[-1]) or (
-                i in self.stage_ends and self.return_interm_layers
-            ):
+            x, source, group_ids = blk(x, source)
+
+            # record only GLOBAL blocks that produced group_ids
+            if getattr(blk, "window_size", 0) == 0 and group_ids is not None:
+                source_layers.append(group_ids)  # [B, HW]
+
+            if (i == self.stage_ends[-1]) or (i in self.stage_ends and self.return_interm_layers):
                 feats = x.permute(0, 3, 1, 2)
                 outputs.append(feats)
+
+        if len(source_layers):
+            self._info = {"source": torch.stack(source_layers, dim=1)}
+        else:
+            self._info = {"source": torch.empty(B, 0, H * W, device=x.device, dtype=torch.long)}
 
         return outputs
 

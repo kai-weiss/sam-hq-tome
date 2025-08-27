@@ -9,11 +9,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from typing import Optional, Tuple, Type, Dict
+from typing import Optional, Tuple, Type, Dict, Any
+
+from torch import Tensor
 
 from .tome_algo.grad_tome.merge import grad_bipartite_soft_matching
 from .tome_algo.tomesd.merge import bipartite_soft_matching_random2d, random_25_bipartite_soft_matching
-from .tome_algo.tome.merge import bipartite_soft_matching
+from .tome_algo.tome.merge import bipartite_soft_matching, merge_source
 from segment_anything.modeling.image_encoder import Attention, ImageEncoderViT
 from .common import LayerNorm2d, MLPBlock
 from .tome_algo.pitome.merge import pitome_vision
@@ -75,6 +77,7 @@ class ToMeImageEncoderViT(ImageEncoderViT):
             tome_setting(Dict[int, ViTToMe]): specify which layers to do token merging with specified parameters
         """
         super().__init__()
+        self._info = None
         self.img_size = img_size
 
         self.patch_embed = PatchEmbed(
@@ -139,14 +142,28 @@ class ToMeImageEncoderViT(ImageEncoderViT):
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
+
+        B, H, W, _ = x.shape
+        tokens = H * W
+        source = torch.eye(tokens, device=x.device)[None, ...].expand(B, tokens, tokens)
+        source_layers = []
         interm_embeddings = []
+
         for blk in self.blocks:
-            x = blk(x)
+            x, source, group_ids = blk(x, source)
+
+            if blk.window_size == 0 and group_ids is not None:
+                source_layers.append(group_ids)
+
             if blk.window_size == 0:
                 interm_embeddings.append(x)
 
-        x = self.neck(x.permute(0, 3, 1, 2))
+        if source_layers:
+            self._info = {"source": torch.stack(source_layers, dim=1)}  # [B, L_global, HW]
+        else:
+            self._info = {"source": torch.empty(B, 0, H * W, device=x.device, dtype=torch.long)}
 
+        x = self.neck(x.permute(0, 3, 1, 2))
         return x, interm_embeddings
 
 
@@ -210,22 +227,46 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, source: torch.Tensor | None = None):
         shortcut = x
         x = self.norm1(x)
+
+        H_glob, W_glob = x.shape[1], x.shape[2]
         # Window partition
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
-        x = self.attn(x)
+            if source is not None:
+                B, N, N0 = source.shape
+                assert N == H * W, "source and x token counts differ"
+                ws = self.window_size
+                source_win = source.view(B, H, W, N0)
+                source_win, _ = window_partition(source_win, ws)  # [B*nw, ws, ws, N0]
+                source = source_win.view(source_win.shape[0], ws * ws, N0)
+
+        group_ids = None
+        if isinstance(self.attn, EfficientAttention):
+            x, source, group_ids = self.attn(x, source)
+        else:
+            x = self.attn(x)
+            if source is not None and self.window_size == 0:
+                B = x.shape[0]
+                HW = H_glob * W_glob
+                group_ids = torch.arange(HW, device=x.device, dtype=torch.long)[None, :].expand(B, -1)
         # Reverse window partition
         if self.window_size > 0:
-            x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+            ws = self.window_size
+            x = window_unpartition(x, ws, pad_hw, (H, W))
+            if source is not None:
+                source_win = source.view(-1, ws, ws, source.shape[-1])
+                source_full = window_unpartition(source_win, ws, pad_hw, (H, W))
+                source = source_full.view(source_full.shape[0], H * W, -1)
+
         x = shortcut + x
         x = x + self.mlp(self.norm2(x))
-
-        return x
+        if source is None:
+            return x
+        return x, source, group_ids
 
 
 class EfficientAttention(Attention):
@@ -240,9 +281,10 @@ class EfficientAttention(Attention):
             input_size: Optional[Tuple[int, int]] = None,
     ) -> None:
         super().__init__(dim, num_heads, qkv_bias, use_rel_pos, rel_pos_zero_init, input_size)
+        self.attention_map = None
         self.tome_setting = tome_setting
 
-    def forward(self, x: torch.Tensor, merge_operations=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, source: torch.Tensor | None = None) -> tuple[Any, Tensor, Tensor]:
         # x - (B, H, W, C * nHeads)
         B, H, W, _ = x.shape
         C = _ // self.num_heads
@@ -307,6 +349,7 @@ class EfficientAttention(Attention):
 
         # x_reduced - (B, N_reduced, C*nHeads)
         x_reduced, merged_indices = x_merge(x)
+        source, group_ids = merge_source(x_merge, x_unmerge, x, source)
         _, N_reduced, _ = x_reduced.shape
         # qkv in shape of (B, N_reduced, 3*nHeads*C)
         qkv = self.qkv(x_reduced)
@@ -322,6 +365,7 @@ class EfficientAttention(Attention):
                                           self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
         attn = attn.softmax(dim=-1)
+        self.attention_map = attn.view(B, self.num_heads, N_reduced, N_reduced)
         x = attn @ v
         # reshape x from (B*nHeads, N_reduced, C) to (B, N_reduced, C*nHeads) for unmerging
         x = x.view(B, self.num_heads, N_reduced, -1).permute(0, 2, 1, 3).reshape(B, N_reduced, -1)
@@ -330,7 +374,7 @@ class EfficientAttention(Attention):
         x = x.reshape(B, H, W, -1) # (B, H, W, C*nHeads)
         x = self.proj(x)
 
-        return x
+        return x, source, group_ids
 
 def aggregate_over_head(x: torch.Tensor, num_heads: int, option: str=None) -> torch.Tensor:
     """

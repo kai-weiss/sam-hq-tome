@@ -8,7 +8,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from typing import Optional, Tuple, Type
+from typing import Optional, Tuple, Type, Any
+
+from torch import Tensor
 
 from .common import LayerNorm2d, MLPBlock
 
@@ -53,6 +55,7 @@ class ImageEncoderViT(nn.Module):
             global_attn_indexes (list): Indexes for blocks using global attention.
         """
         super().__init__()
+        self._info = None
         self.img_size = img_size
 
         self.patch_embed = PatchEmbed(
@@ -107,14 +110,29 @@ class ImageEncoderViT(nn.Module):
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
+
+        B, H, W, _ = x.shape
+        tokens = H * W
+        source = torch.eye(tokens, device=x.device)[None, ...].expand(B, tokens, tokens)
+        source_layers = []
         interm_embeddings = []
+
         for blk in self.blocks:
-            x = blk(x)
+            # every block now accepts/returns source and a per-layer group id map
+            x, source, group_ids = blk(x, source)
+
             if blk.window_size == 0:
                 interm_embeddings.append(x)
+                # record group ids for global blocks (identity here)
+                if group_ids is not None:
+                    source_layers.append(group_ids)  # [B, HW]
+
+        if source_layers:
+            self._info = {"source": torch.stack(source_layers, dim=1)}  # [B, L_global, HW]
+        else:
+            self._info = {"source": torch.empty(B, 0, H * W, device=x.device, dtype=torch.long)}
 
         x = self.neck(x.permute(0, 3, 1, 2))
-
         return x, interm_embeddings
 
 
@@ -165,23 +183,46 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, source: torch.Tensor | None = None):
         shortcut = x
         x = self.norm1(x)
-        # Window partition
+
+        # Window partition (also partition source the same way)
         if self.window_size > 0:
             H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
+            if source is not None:
+                B, N, N0 = source.shape
+                assert N == H * W, "source and x token counts differ"
+                ws = self.window_size
+                source_win = source.view(B, H, W, N0)
+                source_win, _ = window_partition(source_win, ws)  # [B*nw, ws, ws, N0]
+                source = source_win.view(source_win.shape[0], ws * ws, N0)
 
         x = self.attn(x)
-        # Reverse window partition
+
+        # Reverse window partition (also unpartition source)
         if self.window_size > 0:
-            x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+            ws = self.window_size
+            x = window_unpartition(x, ws, pad_hw, (H, W))
+            if source is not None:
+                source_win = source.view(-1, ws, ws, source.shape[-1])
+                source_full = window_unpartition(source_win, ws, pad_hw, (H, W))
+                source = source_full.view(source_full.shape[0], H * W, -1)
 
         x = shortcut + x
         x = x + self.mlp(self.norm2(x))
 
-        return x
+        # For global blocks, emit identity group ids (no merging)
+        group_ids = None
+        if source is not None and self.window_size == 0:
+            B = x.shape[0]
+            HW = x.shape[1] * x.shape[2]
+            group_ids = torch.arange(HW, device=x.device, dtype=torch.long)[None, :].expand(B, -1)
+
+        if source is None:
+            return x
+        return x, source, group_ids
 
 
 class Attention(nn.Module):
@@ -207,6 +248,7 @@ class Attention(nn.Module):
                 positional parameter size.
         """
         super().__init__()
+        self.attention_map = None
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim**-0.5
@@ -229,15 +271,17 @@ class Attention(nn.Module):
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         # q, k, v with shape (B * nHead, H * W, C)
         q, k, v = qkv.reshape(3, B * self.num_heads, H * W, -1).unbind(0)
+
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
         if self.use_rel_pos:
-           attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
+            attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
 
         attn = attn.softmax(dim=-1)
+        self.attention_map = attn.view(B, self.num_heads, H * W, H * W)
+
         x = (attn @ v).view(B, self.num_heads, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
         x = self.proj(x)
-
         return x
 
 
